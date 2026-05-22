@@ -1,73 +1,81 @@
-﻿using Hangfire;
+using Hangfire;
 using Microsoft.Extensions.Configuration;
-using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System.Text;
 
 namespace InactivateUsers
 {
     public class Program
     {
-        static void Main(string[] args)
+        static int Main(string[] args)
         {
-            ScheduleJob();
-           ///Run();
+            try
+            {
+                ScheduleJob();
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex}");
+                return 1;
+            }
+            finally
+            {
+                Console.WriteLine("Press any key to exit...");
+                Console.ReadKey();
+            }
         }
 
         public static void ScheduleJob()
         {
-            try
+            var config = new ConfigurationBuilder().AddJsonFile("appsettings.json").Build();
+
+            var connectionString = config["ConnectionString"]
+                ?? throw new InvalidOperationException("ConnectionString is not configured.");
+            var endpointEventsApi = config["EventsApiEndpoint"]
+                ?? throw new InvalidOperationException("EventsApiEndpoint is not configured.");
+
+            GlobalConfiguration.Configuration.UseSqlServerStorage(connectionString);
+
+            var requestEvent = new
             {
-                var config = new ConfigurationBuilder().AddJsonFile("appsettings.json").Build();
+                ApplicationId = 1,
+                Version       = 3,
+                Action        = 111,
+                ActionName    = "CleanUsers",
+                CreatedBy     = 65,
+                CreatedByName = "Admin"
+            };
 
-                string connectionString = config.GetConnectionString("OmnibeesJobs") ?? throw new InvalidOperationException("Connection string is not configured."); ;
-                GlobalConfiguration.Configuration.UseSqlServerStorage(connectionString);
-                var endpointEventsApi = config["EventsApiEndpoint"] ?? throw new InvalidOperationException("EventsApiEndpoint is not configured.");
+            RecurringJob.AddOrUpdate<CallRestServiceJson>(
+                "inactivate-users",
+                x => x.Call(endpointEventsApi, "Queue", "SendMessage", requestEvent),
+                Cron.Daily);
 
-                var requestEvent = new
-                {
-                    ApplicationId = 1,
-                    NotificationGuid = "8e9b1330-05cf-4bd8-85e4-6da4ee9f5384",
-                    Version = 3,
-                    Action = 111,
-                    ActionName = "CleanUsers",
-                    CreatedBy = 65,
-                    CreatedByName = "Admin"
-                };
-
-                RecurringJob.AddOrUpdate<CallRestServiceJson>("inactivatesers-test", x => x.Call(endpointEventsApi, "Queue", "SendMessage", requestEvent), Cron.Daily);
-                Console.WriteLine("Job registered successfully!");
-
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error: {ex.Message}");
-            }
+            Console.WriteLine($"Job 'inactivate-users' registered");
+            Console.WriteLine($"  Schedule: Cron.Daily (00:00 UTC)");
+            Console.WriteLine($"  Queue:    omnibees");
+            Console.WriteLine($"  Endpoint: {endpointEventsApi}/api/Queue/SendMessage");
+            Console.WriteLine($"  Action:   111 (CleanUsers)");
+            Console.WriteLine($"  Payload:  ApplicationId=1, Version=3, CreatedBy=65 (Admin)");
+            Console.WriteLine($"  Note:     NotificationGuid is generated fresh on each daily run");
         }
-
-        //public static void Run()
-        //{
-        //    using (var server = new BackgroundJobServer(new BackgroundJobServerOptions
-        //    {
-        //        Queues = new[] { "omnibees" }
-        //    }))
-        //    {
-        //        Console.WriteLine("Hangfire Server running. Press Enter to exit...");
-        //        Console.ReadLine();
-        //    }
-        //}
 
         public class CallRestServiceJson
         {
+            private static readonly HttpClient _http = new HttpClient();
+
             [Queue("omnibees")]
             public void Call(string endpoint, string restService, string operation, object jsonRequest)
             {
-                using (var httpClient = new HttpClient())
-                {
-                    var json = JsonConvert.SerializeObject(jsonRequest);
-                    var content = new StringContent(json, Encoding.UTF8, "application/json");
-                    var response = httpClient.PostAsync(endpoint + "/api/" + restService + "/" + operation, content).GetAwaiter().GetResult();
-                    response.EnsureSuccessStatusCode();
-                }
+                var jObject = JObject.FromObject(jsonRequest);
+                jObject["NotificationGuid"] = Guid.NewGuid().ToString();
+                var json = jObject.ToString();
+
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var response = _http.PostAsync(endpoint + "/api/" + restService + "/" + operation, content)
+                                    .GetAwaiter().GetResult();
+                response.EnsureSuccessStatusCode();
             }
         }
     }
