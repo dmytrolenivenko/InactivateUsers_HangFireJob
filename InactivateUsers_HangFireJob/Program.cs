@@ -2,11 +2,20 @@ using Hangfire;
 using Microsoft.Extensions.Configuration;
 using Newtonsoft.Json.Linq;
 using System.Text;
+using Action = OB.Events.Contracts.Action;
 
 namespace InactivateUsers
 {
     public class Program
     {
+        private static readonly Action ActionEnum = Action.CleanUsers;
+        private static readonly string ActionName = nameof(Action.CleanUsers);
+        private const int    AdminUserId   = 65;
+        private const string AdminUserName = "Admin";
+        private const string JobName       = "inactivate-users";
+        private const string QueueName     = "omnibees";
+        private const int    ApplicationId = 1;
+
         static int Main(string[] args)
         {
             try
@@ -39,25 +48,25 @@ namespace InactivateUsers
 
             var requestEvent = new
             {
-                ApplicationId = 1,
-                Version       = 3,
-                Action        = 111,
-                ActionName    = "CleanUsers",
-                CreatedBy     = 65,
-                CreatedByName = "Admin"
+                ApplicationId = ApplicationId,
+                Version       = 1,
+                Action        = ActionEnum,
+                ActionName    = ActionName,
+                CreatedBy     = AdminUserId,
+                CreatedByName = AdminUserName
             };
 
             RecurringJob.AddOrUpdate<CallRestServiceJson>(
-                "inactivate-users",
+                JobName,
                 x => x.Call(endpointEventsApi, "Queue", "SendMessage", requestEvent),
                 Cron.Daily);
 
-            Console.WriteLine($"Job 'inactivate-users' registered");
+            Console.WriteLine($"Job {JobName} registered");
             Console.WriteLine($"  Schedule: Cron.Daily (00:00 UTC)");
-            Console.WriteLine($"  Queue:    omnibees");
+            Console.WriteLine($"  Queue:    {QueueName}");
             Console.WriteLine($"  Endpoint: {endpointEventsApi}/api/Queue/SendMessage");
-            Console.WriteLine($"  Action:   111 (CleanUsers)");
-            Console.WriteLine($"  Payload:  ApplicationId=1, Version=3, CreatedBy=65 (Admin)");
+            Console.WriteLine($"  Action:   {ActionEnum} ({ActionName})");
+            Console.WriteLine($"  Payload:  ApplicationId={ApplicationId}, Version=1, CreatedBy={AdminUserId} ({AdminUserName})");
             Console.WriteLine($"  Note:     NotificationGuid is generated fresh on each daily run");
         }
 
@@ -65,7 +74,7 @@ namespace InactivateUsers
         {
             private static readonly HttpClient _http = new HttpClient();
 
-            [Queue("omnibees")]
+            [Queue(Program.QueueName)]
             public void Call(string endpoint, string restService, string operation, object jsonRequest)
             {
                 var jObject = JObject.FromObject(jsonRequest);
