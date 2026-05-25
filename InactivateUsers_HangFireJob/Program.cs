@@ -10,8 +10,6 @@ namespace InactivateUsers_HangFireJob
     {
         private static readonly Action ActionEnum = Action.CleanUsers;
         private static readonly string ActionName = nameof(Action.CleanUsers);
-        private const int    AdminUserId   = 65;
-        private const string AdminUserName = "Admin";
         private const string JobName       = "inactivate-users";
         private const string QueueName     = "omnibees";
         private const int    ApplicationId = 1;
@@ -42,6 +40,10 @@ namespace InactivateUsers_HangFireJob
         {
             var config = new ConfigurationBuilder().AddJsonFile("appsettings.json").Build();
 
+            var adminUserId = config["AdminUserId"]
+                ?? throw new InvalidOperationException("AdminUserId is not configured.");
+            var adminUserName = config["AdminUserName"]
+                ?? throw new InvalidOperationException("AdminUserName is not configured.");
             var connectionString = config["ConnectionString"]
                 ?? throw new InvalidOperationException("ConnectionString is not configured.");
             var endpointEventsApi = config["EventsApiEndpoint"]
@@ -55,8 +57,8 @@ namespace InactivateUsers_HangFireJob
                 Version       = 1,
                 Action        = ActionEnum,
                 ActionName    = ActionName,
-                CreatedBy     = AdminUserId,
-                CreatedByName = AdminUserName
+                CreatedBy     = adminUserId,
+                CreatedByName = adminUserName
             };
 
             RecurringJob.AddOrUpdate<CallRestServiceJson>(
@@ -69,7 +71,7 @@ namespace InactivateUsers_HangFireJob
             Console.WriteLine($"  Queue:    {QueueName}");
             Console.WriteLine($"  Endpoint: {endpointEventsApi}/api/Queue/SendMessage");
             Console.WriteLine($"  Action:   {ActionEnum} ({ActionName})");
-            Console.WriteLine($"  Payload:  ApplicationId={ApplicationId}, Version=1, CreatedBy={AdminUserId} ({AdminUserName})");
+            Console.WriteLine($"  Payload:  ApplicationId={ApplicationId}, Version=1, CreatedBy={adminUserId} ({adminUserName})");
             Console.WriteLine($"  Note:     NotificationGuid is generated fresh on each daily run");
         }
 
