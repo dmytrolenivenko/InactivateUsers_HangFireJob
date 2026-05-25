@@ -4,7 +4,7 @@ using Newtonsoft.Json.Linq;
 using System.Text;
 using Action = OB.Events.Contracts.Action;
 
-namespace InactivateUsers
+namespace InactivateUsers_HangFireJob
 {
     public class Program
     {
@@ -30,8 +30,11 @@ namespace InactivateUsers
             }
             finally
             {
-                Console.WriteLine("Press any key to exit...");
-                Console.ReadKey();
+                if (Environment.UserInteractive)
+                {
+                    Console.WriteLine("Press any key to exit...");
+                    Console.ReadKey();
+                }
             }
         }
 
@@ -72,7 +75,10 @@ namespace InactivateUsers
 
         public class CallRestServiceJson
         {
-            private static readonly HttpClient _http = new HttpClient();
+            private static readonly HttpClient _http = new HttpClient
+            {
+                Timeout = TimeSpan.FromSeconds(30)
+            };
 
             [Queue(Program.QueueName)]
             public void Call(string endpoint, string restService, string operation, object jsonRequest)
