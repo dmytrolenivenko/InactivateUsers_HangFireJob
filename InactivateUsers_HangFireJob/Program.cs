@@ -1,24 +1,26 @@
 using Hangfire;
 using Microsoft.Extensions.Configuration;
-using Newtonsoft.Json.Linq;
-using System.Text;
+using OB.Services.Jobs.Operations;
 using Action = OB.Events.Contracts.Action;
 
 namespace InactivateUsers_HangFireJob
 {
     public class Program
     {
-        private static readonly Action ActionEnum = Action.CleanUsers;
+        private static readonly int ActionEnum = (int)Action.CleanUsers;
         private static readonly string ActionName = nameof(Action.CleanUsers);
         private const string JobName       = "inactivate-users";
         private const string QueueName     = "omnibees";
         private const int    ApplicationId = 1;
+        private const int    adminUserUid  = 65;
+        private const string adminUserName = "Admin";
 
         static int Main(string[] args)
         {
             try
             {
                 ScheduleJob();
+                //Run(); // Uncomment this to run HangFire Server
                 return 0;
             }
             catch (Exception ex)
@@ -40,10 +42,6 @@ namespace InactivateUsers_HangFireJob
         {
             var config = new ConfigurationBuilder().AddJsonFile("appsettings.json").Build();
 
-            var adminUserId = config["AdminUserId"]
-                ?? throw new InvalidOperationException("AdminUserId is not configured.");
-            var adminUserName = config["AdminUserName"]
-                ?? throw new InvalidOperationException("AdminUserName is not configured.");
             var connectionString = config["ConnectionString"]
                 ?? throw new InvalidOperationException("ConnectionString is not configured.");
             var endpointEventsApi = config["EventsApiEndpoint"]
@@ -54,46 +52,45 @@ namespace InactivateUsers_HangFireJob
             var requestEvent = new
             {
                 ApplicationId = ApplicationId,
-                Version       = 1,
-                Action        = ActionEnum,
-                ActionName    = ActionName,
-                CreatedBy     = adminUserId,
-                CreatedByName = adminUserName
+                Version = 1,
+                Action = ActionEnum,
+                ActionName = ActionName,
+                CreatedBy = adminUserUid,
+                CreatedByName = adminUserName,
+                TracingId = Guid.NewGuid().ToString(),
+                NotificationGuid = Guid.NewGuid().ToString()
             };
 
-            RecurringJob.AddOrUpdate<CallRestServiceJson>(
-                JobName,
-                x => x.Call(endpointEventsApi, "Queue", "SendMessage", requestEvent),
-                Cron.Daily);
+            RecurringJob.AddOrUpdate<CallRestService>(JobName, x => x.Call(endpointEventsApi, "Queue", "SendMessage", requestEvent), Cron.Daily);
 
             Console.WriteLine($"Job {JobName} registered");
-            Console.WriteLine($"  Schedule: Cron.Daily (00:00 UTC)");
+            Console.WriteLine($"  Schedule: {nameof(Cron.Daily)}");
             Console.WriteLine($"  Queue:    {QueueName}");
             Console.WriteLine($"  Endpoint: {endpointEventsApi}/api/Queue/SendMessage");
             Console.WriteLine($"  Action:   {ActionEnum} ({ActionName})");
-            Console.WriteLine($"  Payload:  ApplicationId={ApplicationId}, Version=1, CreatedBy={adminUserId} ({adminUserName})");
-            Console.WriteLine($"  Note:     NotificationGuid is generated fresh on each daily run");
+            Console.WriteLine($"  Payload:  ApplicationId={ApplicationId}, Version=1, CreatedBy={adminUserUid} ({adminUserName})");
         }
 
-        public class CallRestServiceJson
-        {
-            private static readonly HttpClient _http = new HttpClient
-            {
-                Timeout = TimeSpan.FromSeconds(30)
-            };
+        /// <summary>
+        /// HangFireServer for testing
+        /// </summary>
+        //public static void Run()
+        //{
+        //    var config = new ConfigurationBuilder().AddJsonFile("appsettings.json").Build();
+        //    var connectionString = config["ConnectionString"]
+        //        ?? throw new InvalidOperationException("ConnectionString is not configured.");
+        //    var endpointEventsApi = config["EventsApiEndpoint"]
+        //        ?? throw new InvalidOperationException("EventsApiEndpoint is not configured.");
+        //    GlobalConfiguration.Configuration.UseSqlServerStorage(connectionString);
 
-            [Queue(Program.QueueName)]
-            public void Call(string endpoint, string restService, string operation, object jsonRequest)
-            {
-                var jObject = JObject.FromObject(jsonRequest);
-                jObject["NotificationGuid"] = Guid.NewGuid().ToString();
-                var json = jObject.ToString();
-
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var response = _http.PostAsync(endpoint + "/api/" + restService + "/" + operation, content)
-                                    .GetAwaiter().GetResult();
-                response.EnsureSuccessStatusCode();
-            }
-        }
+        //    using (var server = new BackgroundJobServer(new BackgroundJobServerOptions
+        //    {
+        //        Queues = new[] { "omnibees" }
+        //    }))
+        //    {
+        //        Console.WriteLine("Hangfire Server running. Press Enter to exit...");
+        //        Console.ReadLine();
+        //    }
+        //}
     }
 }
